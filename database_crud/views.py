@@ -40,21 +40,7 @@ class MoleculeViewSet(viewsets.ModelViewSet):
 
         # Get all molecules
         molecules = Molecule.objects.all()
-        filtered_molecules = []
-
-        for molecule in molecules:
-            criteria_met = 0
-            if molecule.mol_weight <= 500:
-                criteria_met += 1
-            if molecule.clogp <= 5:
-                criteria_met += 1
-            if molecule.hb_donors <= 5:
-                criteria_met += 1
-            if molecule.hb_acceptors <= 10:
-                criteria_met += 1
-
-            if criteria_met >= min_criteria:
-                filtered_molecules.append(molecule)
+        filtered_molecules = self.lipinsky(molecules, min_criteria)
 
         if order == 'asc':
             filtered_molecules.sort(key=lambda x: getattr(x, order_by))
@@ -91,23 +77,8 @@ class MoleculeViewSet(viewsets.ModelViewSet):
 
         # Get all molecules
         molecules = Molecule.objects.all()
-        filtered_molecules = []
+        filtered_molecules = self.lead_like(molecules, min_criteria)
 
-        for molecule in molecules:
-            criteria_met = 0
-            if molecule.mol_weight <= 300:
-                criteria_met += 1
-            if molecule.clogp <= 3:
-                criteria_met += 1
-            if molecule.hb_donors <= 3:
-                criteria_met += 1
-            if molecule.hb_acceptors <= 3:
-                criteria_met += 1
-            if molecule.num_rot_bonds <= 3:
-                criteria_met += 1
-
-            if criteria_met >= min_criteria:
-                filtered_molecules.append(molecule)
         if order == 'asc':
             filtered_molecules.sort(key=lambda x: getattr(x, order_by))
         else:
@@ -144,27 +115,7 @@ class MoleculeViewSet(viewsets.ModelViewSet):
 
         # Get all molecules
         molecules = Molecule.objects.all()
-        filtered_molecules = []
-
-        for molecule in molecules:
-            criteria_met = 0
-            if molecule.mol_weight <= 500:
-                criteria_met += 1
-            if molecule.clogp <= 5:
-                criteria_met += 1
-            if molecule.hb_donors <= 5:
-                criteria_met += 1
-            if molecule.hb_acceptors <= 10:
-                criteria_met += 1
-            if molecule.tpsa <= 200:
-                criteria_met += 1
-            if molecule.num_rings_alt <= 10:
-                criteria_met += 1
-            if molecule.num_rot_bonds <= 5:
-                criteria_met += 1
-
-            if criteria_met >= min_criteria:
-                filtered_molecules.append(molecule)
+        filtered_molecules = self.bioability(molecules, min_criteria)
         if order == 'asc':
             filtered_molecules.sort(key=lambda x: getattr(x, order_by))
         else:
@@ -258,17 +209,96 @@ class MoleculeViewSet(viewsets.ModelViewSet):
         Custom endpoint to search molecules by name or formula.
         """
         query = request.query_params.get('query')
-
+        filter_by = request.query_params.get('filter_by',)
         if not query:
             return Response({"error": "Missing query parameter"}, status=400)
+        
+        
 
         # Search by name or formula
+        
         molecules = Molecule.objects.filter(
             name__icontains=query) | Molecule.objects.filter(formula__icontains=query)
+        
+        if filter_by == 'All Lipinski’s rules compliant molecules':
+            molecules = self.lipinsky(molecules, 4)
+        elif filter_by == 'All Lead-like molecules':
+            molecules = self.lead_like(molecules, 5)
+        elif filter_by == 'All Bioavailability compliant molecules':
+            molecules = self.bioability(molecules, 6)
+        
+        # Apply pagination (if defined)
+        page = self.paginate_queryset(molecules)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
 
         # Serialize results
         serializer = self.get_serializer(molecules, many=True)
         return Response(serializer.data)
+    
+    def lipinsky(self, molecules, min_criteria=4):
+        filtered_molecules = []
+        for molecule in molecules:
+            criteria_met = 0
+            if molecule.mol_weight <= 500:
+                criteria_met += 1
+            if molecule.clogp <= 5:
+                criteria_met += 1
+            if molecule.hb_donors <= 5:
+                criteria_met += 1
+            if molecule.hb_acceptors <= 10:
+                criteria_met += 1
+
+            if criteria_met >= min_criteria:
+                filtered_molecules.append(molecule)
+
+        return filtered_molecules
+    
+    def lead_like(self, molecules, min_criteria=5):
+        filtered_molecules = []
+        for molecule in molecules:
+            criteria_met = 0
+            if molecule.mol_weight <= 300:
+                criteria_met += 1
+            if molecule.clogp <= 3:
+                criteria_met += 1
+            if molecule.hb_donors <= 3:
+                criteria_met += 1
+            if molecule.hb_acceptors <= 3:
+                criteria_met += 1
+            if molecule.num_rot_bonds <= 3:
+                criteria_met += 1
+            if criteria_met >= min_criteria:
+                filtered_molecules.append(molecule)
+
+        return filtered_molecules
+    
+    def bioability(self, molecules, min_criteria=6):
+        filtered_molecules = []
+
+        for molecule in molecules:
+            criteria_met = 0
+            if molecule.mol_weight <= 500:
+                criteria_met += 1
+            if molecule.clogp <= 5:
+                criteria_met += 1
+            if molecule.hb_donors <= 5:
+                criteria_met += 1
+            if molecule.hb_acceptors <= 10:
+                criteria_met += 1
+            if molecule.tpsa <= 200:
+                criteria_met += 1
+            if molecule.num_rings_alt <= 10:
+                criteria_met += 1
+            if molecule.num_rot_bonds <= 5:
+                criteria_met += 1
+
+            if criteria_met >= min_criteria:
+                filtered_molecules.append(molecule)
+
+        return filtered_molecules
+
 
 class SDFUploadView(APIView):
     parser_classes = [MultiPartParser]
@@ -323,6 +353,7 @@ class SDFUploadView(APIView):
                 )
                 molecules.append(molecule)
 
+
             except Exception as e:
                 print(f"Error processing molecule: {e}")
 
@@ -330,3 +361,4 @@ class SDFUploadView(APIView):
         Molecule.objects.bulk_create(molecules)
 
         return Response({"message": f"{len(molecules)} molecules uploaded successfully!"}, status=201)
+
